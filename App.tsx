@@ -1,10 +1,10 @@
 
 import React, { useState, useRef, useEffect } from 'react';
-import { generateDesignContent, getActiveKeyInfo } from './services/geminiService';
-import { GeneratedContent, AspectRatio, GenerationMode, Resolution, OutputFormat, DesignTask } from './types';
+import { generateDesignContent, getTotalChannels } from './services/geminiService';
+import { GeneratedContent, AspectRatio, GenerationMode, Resolution, DesignTask } from './types';
 import { Button } from './components/Button';
 import { HistorySidebar } from './components/HistorySidebar';
-// import { PromptAssistant } from './components/PromptAssistant'; // Tạm thời ẩn để dùng Tab riêng
+// import { PromptAssistant } from './components/PromptAssistant'; 
 import { Login } from './components/Login';
 
 type Tab = 'studio' | 'brainstorm' | 'gallery';
@@ -18,6 +18,10 @@ const App: React.FC = () => {
   // App Navigation State
   const [activeTab, setActiveTab] = useState<Tab>('studio');
 
+  // Channel State (Manual Selection 1-5)
+  // Mặc định random kênh khi load trang để phân tải
+  const [selectedChannel, setSelectedChannel] = useState<number>(() => Math.floor(Math.random() * getTotalChannels()));
+
   // Design State
   const [prompt, setPrompt] = useState<string>('');
   const [isGenerating, setIsGenerating] = useState<boolean>(false);
@@ -30,7 +34,7 @@ const App: React.FC = () => {
   const [mode, setMode] = useState<GenerationMode>('CREATE');
   const [aspectRatio, setAspectRatio] = useState<AspectRatio>(AspectRatio.R1_1);
   const [resolution, setResolution] = useState<Resolution>('1K');
-  const [outputFormat, setOutputFormat] = useState<OutputFormat>('png');
+  const [numberOfImages, setNumberOfImages] = useState<number>(4);
   const [task, setTask] = useState<DesignTask>(DesignTask.DESIGN);
   
   // Customization State
@@ -39,7 +43,6 @@ const App: React.FC = () => {
 
   // Modal / Sidebar State
   const [showSidebar, setShowSidebar] = useState<boolean>(false);
-  const [activeKeyInfo, setActiveKeyInfo] = useState(getActiveKeyInfo());
 
   // Download Option State
   const [removeBg, setRemoveBg] = useState<boolean>(false);
@@ -54,7 +57,7 @@ const App: React.FC = () => {
 
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  // Constants for Colors
+  // Constants
   const PRESET_COLORS = [
     { name: 'White', value: '#FFFFFF', class: 'bg-white border-slate-200' },
     { name: 'Black', value: '#000000', class: 'bg-black border-slate-700' },
@@ -80,18 +83,11 @@ const App: React.FC = () => {
     setIsAuthChecking(false);
   }, []);
 
-  // Update active key info periodically
-  useEffect(() => {
-    const interval = setInterval(() => setActiveKeyInfo(getActiveKeyInfo()), 2000);
-    return () => clearInterval(interval);
-  }, []);
-
   const handleLogin = (username: string, remember: boolean) => {
     setIsAuthenticated(true);
     setCurrentUser(username);
     if (remember) {
       localStorage.setItem('phattien_ai_user', username);
-      // Ghi nhớ trong 7 ngày
       localStorage.setItem('phattien_ai_expiry', (Date.now() + 7 * 24 * 60 * 60 * 1000).toString());
     }
   };
@@ -176,16 +172,18 @@ const App: React.FC = () => {
     setError(null);
 
     try {
+      // Truyền selectedChannel vào service
       const result = await generateDesignContent({
         prompt,
         aspectRatio,
         resolution,
+        numberOfImages,
         task,
         referenceImages: refImages,
         referenceImageMimeTypes: refMimes,
         backgroundColor: bgColor,
         useSolidBackground: task === DesignTask.HEADLINE_STICKER ? useSolidBackground : false,
-      });
+      }, selectedChannel);
 
       const newContent: GeneratedContent = {
         id: crypto.randomUUID(),
@@ -203,7 +201,6 @@ const App: React.FC = () => {
       setError(err.message || "Đã xảy ra lỗi hệ thống.");
     } finally {
       setIsGenerating(false);
-      setActiveKeyInfo(getActiveKeyInfo());
     }
   };
 
@@ -239,28 +236,14 @@ const App: React.FC = () => {
     if (!currentContent) return;
     const activeImageSrc = currentContent.contents[selectedImageIndex];
     const link = document.createElement('a');
-    if (outputFormat === 'png') {
-        let finalUrl = activeImageSrc;
-        if (removeBg && task === DesignTask.HEADLINE_STICKER) {
-            finalUrl = await processTransparentImage(activeImageSrc);
-        }
-        link.href = finalUrl;
-        link.download = `phat-tien-design-${currentContent.id}.png`;
-        document.body.appendChild(link); link.click(); document.body.removeChild(link);
-    } else {
-        const img = new Image(); img.src = activeImageSrc; img.crossOrigin = "anonymous";
-        img.onload = () => {
-            const canvas = document.createElement('canvas'); canvas.width = img.width; canvas.height = img.height;
-            const ctx = canvas.getContext('2d');
-            if (ctx) {
-                ctx.fillStyle = "#FFFFFF"; ctx.fillRect(0, 0, canvas.width, canvas.height);
-                ctx.drawImage(img, 0, 0);
-                link.href = canvas.toDataURL('image/jpeg', 0.9);
-                link.download = `phat-tien-design-${currentContent.id}.jpg`;
-                document.body.appendChild(link); link.click(); document.body.removeChild(link);
-            }
-        };
+    
+    let finalUrl = activeImageSrc;
+    if (removeBg && task === DesignTask.HEADLINE_STICKER) {
+        finalUrl = await processTransparentImage(activeImageSrc);
     }
+    link.href = finalUrl;
+    link.download = `phat-tien-design-${currentContent.id}.png`;
+    document.body.appendChild(link); link.click(); document.body.removeChild(link);
   };
 
   const getTaskIcon = (t: DesignTask) => {
@@ -371,9 +354,30 @@ const App: React.FC = () => {
             </div>
 
             <div className="flex items-center gap-4">
-                <p className="text-xs text-slate-500 text-right hidden md:block">
+                 {/* Channel Selector - Dropdown Style */}
+                 <div className="flex items-center gap-2 mr-4 bg-white border border-slate-200 rounded-lg px-2 py-1 shadow-sm">
+                    <div className={`w-2 h-2 rounded-full ${isGenerating ? 'bg-amber-500 animate-pulse' : 'bg-green-500'}`}></div>
+                    <span className="text-[10px] text-slate-400 font-bold uppercase tracking-wider mr-1">Nguồn:</span>
+                    <div className="relative group">
+                        <select 
+                            value={selectedChannel}
+                            onChange={(e) => setSelectedChannel(Number(e.target.value))}
+                            className="appearance-none bg-transparent text-slate-700 text-xs font-bold py-1 pr-6 pl-1 focus:outline-none cursor-pointer hover:text-red-600 transition-colors"
+                        >
+                            {Array.from({ length: 5 }).map((_, idx) => (
+                                <option key={idx} value={idx}>
+                                    Server Core #{idx + 1}
+                                </option>
+                            ))}
+                        </select>
+                        <div className="absolute right-0 top-1/2 -translate-y-1/2 pointer-events-none text-slate-400 group-hover:text-red-600 transition-colors">
+                            <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="m6 9 6 6 6-6"/></svg>
+                        </div>
+                    </div>
+                 </div>
+
+                <p className="text-xs text-slate-500 text-right hidden md:block border-l border-slate-200 pl-4">
                    <span className="block font-bold text-slate-700">{currentUser}</span>
-                   <span className="text-[10px]">Kênh {activeKeyInfo.index + 1}/{activeKeyInfo.total}</span>
                 </p>
                 <button 
                     onClick={() => setShowSidebar(!showSidebar)}
@@ -414,7 +418,7 @@ const App: React.FC = () => {
                    value={prompt}
                    onChange={(e) => setPrompt(e.target.value)}
                    placeholder="Mô tả chi tiết: Chủ thể, màu sắc, ánh sáng, bối cảnh..."
-                   className="w-full h-40 bg-slate-50 border border-slate-200 rounded-xl p-3 text-sm focus:ring-2 focus:ring-red-500 outline-none shadow-inner transition-all resize-none"
+                   className="w-full h-64 bg-slate-50 border border-slate-200 rounded-xl p-3 text-sm focus:ring-2 focus:ring-red-500 outline-none shadow-inner transition-all resize-none"
                  />
                </div>
    
@@ -466,11 +470,18 @@ const App: React.FC = () => {
                                 ))}
                             </div>
                         </div>
+                        {/* New Quantity Selector */}
                         <div className="space-y-1">
-                            <label className="text-[10px] font-bold text-slate-400 uppercase">Format</label>
+                            <label className="text-[10px] font-bold text-slate-400 uppercase">Số lượng</label>
                             <div className="flex gap-1">
-                                {(['png', 'jpg'] as OutputFormat[]).map((f) => (
-                                    <button key={f} onClick={() => setOutputFormat(f)} className={`flex-1 py-1.5 rounded text-[10px] font-bold transition-all border uppercase ${outputFormat === f ? 'bg-red-50 text-red-600 border-red-200' : 'bg-white text-slate-500 border-slate-200'}`}>{f}</button>
+                                {[1, 2, 3, 4].map((num) => (
+                                    <button 
+                                        key={num} 
+                                        onClick={() => setNumberOfImages(num)} 
+                                        className={`flex-1 py-1.5 rounded text-[10px] font-bold transition-all border ${numberOfImages === num ? 'bg-red-50 text-red-600 border-red-200' : 'bg-white text-slate-500 border-slate-200'}`}
+                                    >
+                                        {num}
+                                    </button>
                                 ))}
                             </div>
                         </div>
@@ -482,7 +493,6 @@ const App: React.FC = () => {
                            {Object.entries(AspectRatio).map(([key, value]) => (
                            <button key={key} onClick={() => setAspectRatio(value)} className={`py-1.5 rounded border text-[10px] font-bold transition-all ${aspectRatio === value ? 'border-red-500 bg-red-50 text-red-600 shadow-sm' : 'bg-white border-slate-200 hover:border-slate-300 text-slate-600'}`}>
                                {value}
-                               {value === '16:5' && <span className="block text-[8px] font-normal opacity-70">Banner</span>}
                            </button>
                            ))}
                        </div>
@@ -492,7 +502,7 @@ const App: React.FC = () => {
                {error && <div className="bg-red-50 border border-red-200 text-red-600 p-3 rounded-lg text-xs">{error}</div>}
    
                <Button onClick={handleGenerate} isLoading={isGenerating} className="w-full h-12 text-lg shadow-red-600/30">
-                  {isGenerating ? 'Đang sáng tạo...' : 'Tạo 4 Phương Án'}
+                  {isGenerating ? 'Đang sáng tạo...' : `Tạo ${numberOfImages} Phương Án`}
                </Button>
              </div>
    
@@ -503,7 +513,7 @@ const App: React.FC = () => {
                      <div className="w-16 h-16 rounded-xl bg-red-600 animate-spin flex items-center justify-center shadow-lg"><svg className="text-white w-8 h-8" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M21 12a9 9 0 1 1-6.219-8.56"/></svg></div>
                      <div className="mt-8 text-center">
                        <h3 className="text-lg font-bold text-slate-700">AI đang vẽ...</h3>
-                       <p className="text-sm text-slate-500">Kênh xử lý #{activeKeyInfo.index + 1} đang hoạt động</p>
+                       <p className="text-sm text-slate-500">Đang xử lý trên kênh Server #{selectedChannel + 1}</p>
                      </div>
                   </div>
                 ) : currentContent ? (
@@ -512,16 +522,19 @@ const App: React.FC = () => {
                            <div className="flex-1 relative bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden flex items-center justify-center p-4 bg-[url('https://www.transparenttextures.com/patterns/cubes.png')]">
                                <img src={currentContent.contents[selectedImageIndex]} className="max-w-full max-h-full object-contain shadow-2xl" />
                            </div>
-                           <div className="h-24 w-full flex justify-center gap-3">
-                               {currentContent.contents.map((imgSrc, idx) => (
-                                   <div key={idx} onClick={() => setSelectedImageIndex(idx)} className={`h-full aspect-square bg-white rounded-lg border-2 cursor-pointer overflow-hidden transition-all transform hover:scale-105 ${selectedImageIndex === idx ? 'border-red-600 shadow-md ring-2 ring-red-100' : 'border-slate-200'}`}>
-                                       <img src={imgSrc} className="w-full h-full object-cover" />
-                                   </div>
-                               ))}
-                           </div>
+                           {currentContent.contents.length > 1 && (
+                                <div className="h-24 w-full flex justify-center gap-3">
+                                    {currentContent.contents.map((imgSrc, idx) => (
+                                        <div key={idx} onClick={() => setSelectedImageIndex(idx)} className={`h-full aspect-square bg-white rounded-lg border-2 cursor-pointer overflow-hidden transition-all transform hover:scale-105 ${selectedImageIndex === idx ? 'border-red-600 shadow-md ring-2 ring-red-100' : 'border-slate-200'}`}>
+                                            <img src={imgSrc} className="w-full h-full object-cover" />
+                                        </div>
+                                    ))}
+                                </div>
+                           )}
                        </div>
                     <div className="flex-shrink-0 flex gap-3 bg-white p-3 rounded-xl shadow-sm border border-slate-200 items-center">
-                       {outputFormat === 'png' && currentContent.task === DesignTask.HEADLINE_STICKER && (
+                       {/* Format removed, removing 'png' check logic */}
+                       {currentContent.task === DesignTask.HEADLINE_STICKER && (
                            <label className="flex items-center gap-2 cursor-pointer bg-slate-50 px-3 py-2 rounded-lg border border-slate-200 text-xs font-bold text-slate-600 hover:bg-slate-100 transition-colors mr-2">
                                <input type="checkbox" checked={removeBg} onChange={(e) => setRemoveBg(e.target.checked)} className="accent-red-600 w-4 h-4" /> 
                                Xóa nền trắng (Alpha)

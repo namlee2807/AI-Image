@@ -9,13 +9,10 @@ export enum AspectRatio {
   R5_4 = "5:4",
   R9_16 = "9:16",
   R16_9 = "16:9",
-  R21_9 = "21:9",
-  R16_5 = "16:5"
+  R21_9 = "21:9"
 }
 
 export type Resolution = '1K' | '2K' | '4K';
-
-export type OutputFormat = 'png' | 'jpg';
 
 export enum DesignTask {
   DESIGN = "design", // Kết hợp Thiết kế tổng & Background
@@ -35,6 +32,7 @@ export interface GenerationConfig {
   prompt: string;
   aspectRatio: AspectRatio;
   resolution: Resolution;
+  numberOfImages: number; // Thêm trường số lượng ảnh
   task: DesignTask;
   referenceImages?: string[]; // Array of base64 strings
   referenceImageMimeTypes?: string[];
