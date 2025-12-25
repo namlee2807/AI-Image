@@ -103,7 +103,8 @@ export const generateDesignContent = async (config: GenerationConfig, channelInd
   parts.push({ text: finalPrompt });
 
   // 3. Thực thi request
-  const numberOfVariations = config.numberOfImages || 4;
+  // Mặc định tạo 1 ảnh nếu không có cấu hình số lượng
+  const numberOfVariations = config.numberOfImages || 1;
   
   const promises = Array(numberOfVariations).fill(null).map(() => 
       generateSingleImageRequest(ai, MODEL_PRO, parts, config)

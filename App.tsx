@@ -34,7 +34,7 @@ const App: React.FC = () => {
   const [mode, setMode] = useState<GenerationMode>('CREATE');
   const [aspectRatio, setAspectRatio] = useState<AspectRatio>(AspectRatio.R1_1);
   const [resolution, setResolution] = useState<Resolution>('1K');
-  const [numberOfImages, setNumberOfImages] = useState<number>(4);
+  const [numberOfImages, setNumberOfImages] = useState<number>(1);
   const [task, setTask] = useState<DesignTask>(DesignTask.DESIGN);
   
   // Customization State
